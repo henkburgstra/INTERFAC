@@ -1,0 +1,409 @@
+/*----------------------------------------------------------------------
+  HBMENU.C
+  Copyright 1995 H.G.Burgstra
+  Datum laatste wijziging: 14-06-95
+  ----------------------------------------------------------------------*/
+#include <alloc.h>
+#include <conio.h>
+#include <ctype.h>
+#include <mem.h>
+#include <stdlib.h>
+#include <string.h>
+#include "hbcursor.h"
+#include "hbtoets.h"
+#include "hbinkey.h"
+#include "hbwindow.h"
+#include "hbmenu.h"
+#include "help.h"
+
+#define TRUE 1
+#define FALSE 0
+
+void DrukBalkAf(int Pos,const char *Tekst,unsigned int Kleur);
+
+static int MenuStack=0;
+static unsigned int MenuKleur,KeuzeKleur;
+
+/*----------------------------------------------------------------------
+  InitMenu
+  ----------------------------------------------------------------------*/
+void InitMenu(void)
+{
+
+  MenuKleur=GetColor(MENU_KLEUR);
+  KeuzeKleur=Invers(MenuKleur);
+
+}
+
+/*----------------------------------------------------------------------
+  CreateMenu
+  ----------------------------------------------------------------------*/
+Menu_t near *CreateMenu(char *Titel,int y,int x,int MenuHelp)
+{
+
+  Menu_t *Nieuw;
+
+  Nieuw=(Menu_t *) malloc(sizeof(Menu_t));
+
+  if (!Nieuw)
+	 exit(1);
+
+  Nieuw->Volgende=NULL;
+  Nieuw->Vorige=NULL;
+  Nieuw->Moeder=NULL;
+  Nieuw->EersteOptie=NULL;
+  Nieuw->LaatsteOptie=NULL;
+  Nieuw->Data=(MenuData_t *) malloc(sizeof(MenuData_t));
+
+  if (!Nieuw->Data)
+	 exit(1);
+
+  Nieuw->Data->y=y;
+  Nieuw->Data->x=x;
+  Nieuw->Data->Titel=(char *) calloc(strlen(Titel)+1,sizeof(char));
+
+  if (!Nieuw->Data->Titel)
+	 exit(1);
+
+  strcpy(Nieuw->Data->Titel,Titel);
+  Nieuw->Data->MenuHelp=MenuHelp;
+  Nieuw->Data->Aantal=0;
+
+  return(Nieuw);
+
+}
+
+/*----------------------------------------------------------------------
+  AddItem
+  ----------------------------------------------------------------------*/
+void AddItem(Menu_t *Menu,char *OptieTekst,char Kiezer,
+				 char *StatusRegel,void far (*Funktie)(void),int Enabled)
+{
+
+  Optie_t *Nieuw;
+
+  Nieuw=(Optie_t *) malloc(sizeof(Optie_t));
+
+  if (!Nieuw)
+	 exit(1);
+
+  if (Menu->EersteOptie) {
+	 Menu->LaatsteOptie->Volgende=Nieuw;
+	 Nieuw->Vorige=Menu->LaatsteOptie;
+	 Menu->LaatsteOptie=Nieuw;
+  }
+  else {
+	 Menu->EersteOptie=Menu->LaatsteOptie=Nieuw;
+	 Nieuw->Vorige=NULL;
+  }
+
+  Nieuw->Data=(OptieData_t *) malloc(sizeof(Optie_t)+1);
+
+  if (!Nieuw->Data)
+	 exit(1);
+
+  Nieuw->Data->OptieTekst=(char *) calloc(strlen(OptieTekst)+1,
+			  sizeof(char));
+
+  if (!Nieuw->Data->OptieTekst)
+	 exit(1);
+
+  Nieuw->Data->StatusRegel=(char *) calloc(strlen(StatusRegel)+1,
+				sizeof(char));
+
+  if (!Nieuw->Data->StatusRegel)
+	 exit(1);
+
+  strcpy(Nieuw->Data->OptieTekst,OptieTekst);
+  strcpy(Nieuw->Data->StatusRegel,StatusRegel);
+
+  Nieuw->Data->Kiezer=Kiezer;
+  Nieuw->Data->Funktie=Funktie;
+  Nieuw->Data->Enabled=Enabled;
+
+  Nieuw->Volgende=NULL;
+  Menu->Data->Aantal++;
+
+}
+
+/*----------------------------------------------------------------------
+  EnableItem
+  ----------------------------------------------------------------------*/
+void EnableItem(Menu_t *Menu,int Optie)
+{
+
+  int i;
+  Optie_t *MenuOptie;
+
+  MenuOptie=Menu->EersteOptie;
+
+  for (i=1;i<Optie && MenuOptie != NULL;i++)
+	 MenuOptie=MenuOptie->Volgende;
+
+  if (MenuOptie !=NULL)
+	 MenuOptie->Data->Enabled=TRUE;
+
+}
+
+/*----------------------------------------------------------------------
+  DisableItem
+  ----------------------------------------------------------------------*/
+void DisableItem(Menu_t *Menu,int Optie)
+{
+
+  int i;
+  Optie_t *MenuOptie;
+
+  MenuOptie=Menu->EersteOptie;
+
+  for (i=1;i<Optie && MenuOptie != NULL;i++)
+	 MenuOptie=MenuOptie->Volgende;
+
+  if (MenuOptie !=NULL)
+	 MenuOptie->Data->Enabled=FALSE;
+
+}
+
+/*----------------------------------------------------------------------
+  MenuLoop
+  ----------------------------------------------------------------------*/
+void MenuLoop(Menu_t *StartMenu)
+{
+
+  int Toets,Doorgaan;
+  char MenuBalk[81];
+  Menu_t *HuidigMenu;
+
+  HuidigMenu=StartMenu;
+
+  if (MenuStack==0) {
+
+	 memset(MenuBalk,' ',80);
+	 MenuBalk[80]='\0';
+	 hbPrint(StartMenu->Data->y-1,1,MenuBalk,MenuKleur);
+	 MenuBalk[66]='\0';
+	 hbPrint(25,1,MenuBalk,MenuKleur);
+
+	 do {
+
+		hbPrint(HuidigMenu->Data->y-1,HuidigMenu->Data->x,
+				  HuidigMenu->Data->Titel,MenuKleur);
+		HuidigMenu=HuidigMenu->Volgende;
+
+	 } while (HuidigMenu && (HuidigMenu->Data->x > StartMenu->Data->x));
+
+  }
+
+  Doorgaan=TRUE;
+
+  while (Doorgaan) {
+
+	 hbPrint(StartMenu->Data->y-1,StartMenu->Data->x,
+				StartMenu->Data->Titel,KeuzeKleur);
+	 Toets=ExecuteMenu(StartMenu);
+
+	 switch (Toets) {
+
+	 case K_LEFT:
+		hbPrint(StartMenu->Data->y-1,StartMenu->Data->x,
+				  StartMenu->Data->Titel,MenuKleur);
+		StartMenu=StartMenu->Vorige;
+		break;
+
+	 case K_RIGHT:
+		hbPrint(StartMenu->Data->y-1,StartMenu->Data->x,
+				  StartMenu->Data->Titel,MenuKleur);
+		StartMenu=StartMenu->Volgende;
+		break;
+
+	 case K_ESC:
+	 case K_ENTER:
+		Doorgaan=FALSE;
+		break;
+
+	 }
+
+  }
+
+}
+
+
+/*----------------------------------------------------------------------
+  ExecuteMenu
+  ----------------------------------------------------------------------*/
+int ExecuteMenu(Menu_t *Menu)
+{
+
+  int Onder,Rechts,i,Toets,Doorgaan=TRUE,Pos=0,SnelToets,VorigeCursor,
+		VorigeHelp;
+  char StatusBalk[66];
+  Optie_t *HuidigeOptie,*VorigeOptie;
+
+  VorigeHelp=HelpTekst(Menu->Data->MenuHelp);
+
+  MenuStack++;
+  StatusBalk[65]='\0';
+  VorigeCursor=SetCursor(UIT);
+
+  HuidigeOptie=Menu->EersteOptie;
+  Onder=Menu->Data->y+Menu->Data->Aantal+1;
+  Rechts=Menu->Data->x+strlen(HuidigeOptie->Data->OptieTekst)+1;
+
+  MakeWindow(Menu->Data->y,Menu->Data->x,Onder,Rechts,ENKEL,MenuKleur);
+
+  for(i=0;i<Menu->Data->Aantal;i++) {
+	 gotoxy(2,2+i);
+	 cprintf("%s",HuidigeOptie->Data->OptieTekst);
+	 HuidigeOptie=HuidigeOptie->Volgende;
+  }
+
+  HuidigeOptie=Menu->EersteOptie;
+
+  while (Doorgaan) {
+
+	 DrukBalkAf(Pos,HuidigeOptie->Data->OptieTekst,KeuzeKleur);
+	 memset(StatusBalk,' ',65);
+	 hbPrint(25,2,strncpy(StatusBalk,HuidigeOptie->Data->StatusRegel,
+				strlen(HuidigeOptie->Data->StatusRegel)),MenuKleur);
+	 Toets=hbInkey(0);
+
+	 switch (Toets) {
+
+	 case K_ESC:
+		  Doorgaan=FALSE;
+		  hbPrint(Menu->Data->y-1,Menu->Data->x,Menu->Data->Titel,MenuKleur);
+		  RemoveWindow();
+		  break;
+
+	 case K_LEFT:
+		  if (Menu->Vorige) {
+			 Doorgaan=FALSE;
+			 RemoveWindow();
+		  }
+		  else
+			 if (Menu->Moeder)
+				if (Menu->Data->x > Menu->Moeder->Data->x) {
+				  Doorgaan=FALSE;
+				  RemoveWindow();
+				}
+		  break;
+
+	 case K_RIGHT:
+		  if (Menu->Volgende) {
+			 Doorgaan=FALSE;
+			 RemoveWindow();
+		  }
+		  else
+			 if (Menu->Moeder)
+				if (Menu->Data->x < Menu->Moeder->Data->x) {
+				  Doorgaan=FALSE;
+				  RemoveWindow();
+				}
+		  break;
+
+	 case K_UP:
+		  DrukBalkAf(Pos,HuidigeOptie->Data->OptieTekst,MenuKleur);
+		  if (HuidigeOptie->Vorige) {
+			 HuidigeOptie=HuidigeOptie->Vorige;
+			 Pos--;
+		  }
+		  else {
+			 HuidigeOptie=Menu->LaatsteOptie;
+			 Pos=Menu->Data->Aantal-1;
+		  }
+		  break;
+
+	 case K_DOWN:
+		  DrukBalkAf(Pos,HuidigeOptie->Data->OptieTekst,MenuKleur);
+		  if (HuidigeOptie->Volgende) {
+			 HuidigeOptie=HuidigeOptie->Volgende;
+			 Pos++;
+		  }
+		  else {
+			 HuidigeOptie=Menu->EersteOptie;
+			 Pos=0;
+		  }
+		  break;
+
+	 case K_ENTER:
+		  if (HuidigeOptie->Data->Enabled && HuidigeOptie->Data->Funktie) {
+			 hbPrint(Menu->Data->y-1,Menu->Data->x,Menu->Data->Titel,MenuKleur);
+			 HideWindow();
+			 (*HuidigeOptie->Data->Funktie)();
+			 hbPrint(Menu->Data->y-1,Menu->Data->x,Menu->Data->Titel,KeuzeKleur);
+			 ShowWindow();
+		  }
+		  else
+			 if (!HuidigeOptie->Data->Funktie) {
+				Doorgaan=FALSE;
+				hbPrint(Menu->Data->y-1,Menu->Data->x,Menu->Data->Titel,MenuKleur);
+				RemoveWindow();
+			 }
+		  break;
+
+	 default:
+		  VorigeOptie=HuidigeOptie;
+		  HuidigeOptie=Menu->EersteOptie;
+			 for(i=0;i<Menu->Data->Aantal;i++) {
+				SnelToets=(isalpha(Toets) && islower(Toets) ? toupper(Toets) :
+							  Toets);
+				if (SnelToets==HuidigeOptie->Data->Kiezer) {
+				  DrukBalkAf(Pos,VorigeOptie->Data->OptieTekst,MenuKleur);
+				  Pos=i;
+				  DrukBalkAf(Pos,HuidigeOptie->Data->OptieTekst,KeuzeKleur);
+				  memset(StatusBalk,' ',78);
+				  hbPrint(25,2,strncpy(StatusBalk,HuidigeOptie->Data->StatusRegel,
+							 strlen(HuidigeOptie->Data->StatusRegel)),MenuKleur);
+				  VorigeOptie=HuidigeOptie;
+				  if (HuidigeOptie->Data->Enabled && HuidigeOptie->Data->Funktie) {
+					 hbPrint(Menu->Data->y-1,Menu->Data->x,
+								Menu->Data->Titel,MenuKleur);
+					 HideWindow();
+	  				 (*HuidigeOptie->Data->Funktie)();
+					 hbPrint(Menu->Data->y-1,Menu->Data->x,Menu->Data->Titel,
+								KeuzeKleur);
+					 ShowWindow();
+				  }
+				  else
+					 if (!HuidigeOptie->Data->Funktie) {
+						Doorgaan=FALSE;
+						hbPrint(Menu->Data->y-1,Menu->Data->x,Menu->Data->Titel,
+								  MenuKleur);
+						RemoveWindow();
+					 }
+				  break;
+				}
+				HuidigeOptie=HuidigeOptie->Volgende;
+			 }
+		  HuidigeOptie=VorigeOptie
+		  break;
+
+	 }
+
+  }
+
+  MenuStack--;
+  SetCursor(VorigeCursor);
+  HelpTekst(VorigeHelp);
+
+  return(Toets);
+
+}
+
+/*----------------------------------------------------------------------
+  DrukBalkAf
+  ----------------------------------------------------------------------*/
+void DrukBalkAf(int Pos,const char *Tekst,unsigned int Kleur)
+{
+
+  gotoxy(2,2+Pos);
+  textattr(Kleur);
+  cprintf("%s",Tekst);
+
+  return;
+
+}
+
+/*
+EOF HBMENU.C
+------------------------------------------------------------------------*/

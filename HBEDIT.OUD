@@ -1,0 +1,363 @@
+/*----------------------------------------------------------------------
+  HBEDIT.C
+  Copyright 1995 H.G.Burgstra
+  Datum laatste wijziging: 27-05-95
+  ----------------------------------------------------------------------*/
+#include <alloc.h>
+#include <stdlib.h>
+#include <conio.h>
+#include <string.h>
+#include "hbtoets.h"
+#include "hbcursor.h"
+#include "hbinkey.h"
+#include "hbedit.h"
+
+#define FALSE 0
+#define TRUE 1
+
+#define WERKEDIT HuidigeEdit->Data->Tekst
+
+EditLijst_t *VolgendVeld(EditLijst_t *HuidigeEdit,EditLijst_t *NieuweEdit,
+								 const char *Kopie);
+
+/*----------------------------------------------------------------------
+  Edit
+  ----------------------------------------------------------------------*/
+void hbEdit(EditKop_t *EditBlok,int Nummer)
+{
+
+  int Toets,Pos=0,VorigeCursor,Doorgaan=TRUE,Insert=TRUE,i;
+  char *Kopie;
+  EditLijst_t *HuidigeEdit,*BeginEdit;
+
+  HuidigeEdit=EditBlok->Eerste;
+
+  for (i=0;i<EditBlok->Aantal;i++) {
+	 if (Nummer==(i+1)) {
+		BeginEdit=HuidigeEdit;
+		textattr(HuidigeEdit->Data->EditKleur);
+	 }
+	 else
+		textattr(HuidigeEdit->Data->Kleur);
+	 gotoxy(HuidigeEdit->Data->x,HuidigeEdit->Data->y);
+	 cputs(HuidigeEdit->Data->Tekst);
+	 HuidigeEdit=HuidigeEdit->Volgende;
+  }
+
+  HuidigeEdit=BeginEdit;
+
+  Kopie=(char *) calloc(strlen(WERKEDIT)+1,sizeof(char));
+
+  VorigeCursor=SetCursor(AAN);
+
+  while (Doorgaan) {
+
+	 if (Pos==strlen(WERKEDIT))
+		Pos--;
+
+	 textattr(HuidigeEdit->Data->EditKleur);
+	 gotoxy(HuidigeEdit->Data->x+Pos,HuidigeEdit->Data->y);
+
+	 Toets=hbInkey(0);
+
+	 switch (Toets) {
+
+	 case K_HOME:
+		  Pos=0;
+		  break;
+
+	 case K_END:
+		  Pos=strlen(WERKEDIT)-1;
+		  break;
+
+	 case K_LEFT:
+		  Pos=(Pos > 0 ? --Pos : Pos);
+		  break;
+
+	 case K_RIGHT:
+		  Pos=(Pos < (strlen(WERKEDIT)-1) ? ++Pos : Pos);
+		  break;
+
+	 case K_INS:
+		  if (Insert) {
+			 Insert=FALSE;
+			 SetCursor(HALF);
+		  }
+		  else {
+			 Insert=TRUE;
+			 SetCursor(AAN);
+		  }
+		  break;
+
+	 case K_DEL:
+		  for (i=Pos;i<strlen(WERKEDIT);i++)
+			 WERKEDIT[i]=(i==(strlen(WERKEDIT)-1) ? ' ' : WERKEDIT[i+1]);
+		  cputs(WERKEDIT+Pos);
+		  break;
+
+	 case K_BS:
+		  if (Pos>0) {
+			 Pos--;
+			 gotoxy(HuidigeEdit->Data->x+Pos,HuidigeEdit->Data->y);
+			 if (Insert) {
+				for (i=Pos;i<strlen(WERKEDIT);i++)
+				  WERKEDIT[i]=(i==(strlen(WERKEDIT)-1) ? ' ' : WERKEDIT[i+1]);
+				cputs(WERKEDIT+Pos);
+			 }
+			 else {
+				WERKEDIT[Pos]=' ';
+				cputs(" ");
+			 }
+		  }
+		  break;
+
+	 case K_CTRL_Y:
+		  for (i=0;i<strlen(WERKEDIT);i++)
+			 WERKEDIT[i]=' ';
+		  Pos=0;
+		  gotoxy(HuidigeEdit->Data->x+Pos,HuidigeEdit->Data->y);
+		  cputs(WERKEDIT);
+		  break;
+
+	 case K_SH_TAB:
+		  if (HuidigeEdit->Vorige && (HuidigeEdit->Data->Controle ?
+				(*HuidigeEdit->Data->Controle)(HuidigeEdit) : TRUE)) {
+			 HuidigeEdit=VolgendVeld(HuidigeEdit,HuidigeEdit->Vorige,Kopie);
+			 Pos=0;
+		  }
+		  else
+		    Doorgaan=FALSE;
+		  break;
+
+	 case K_ESC:
+		  Doorgaan=FALSE;
+		  break;
+
+	 case K_ENTER:
+	 case K_TAB:
+		  if (HuidigeEdit->Volgende) {
+			 if ((HuidigeEdit->Data->Controle ?
+					(*HuidigeEdit->Data->Controle)(HuidigeEdit) : TRUE)) {
+				HuidigeEdit=VolgendVeld(HuidigeEdit,HuidigeEdit->Volgende,Kopie);
+				Pos=0;
+			 }
+		  }
+		  else
+			 Doorgaan=FALSE;
+		  break;
+
+	 default:
+		  if (Toets>0) {
+
+		  if (Insert)
+			 Kopie=strcpy(Kopie,WERKEDIT+Pos);
+		  WERKEDIT[Pos]=Toets;
+		  cprintf("%c",WERKEDIT[Pos]);
+		  Pos++;
+		  if (Insert && strlen(Kopie)>1)
+			 cputs(strncpy(WERKEDIT+Pos,Kopie,(strlen(WERKEDIT)-Pos)));
+
+		  }
+		  
+		  break;
+
+
+	 }
+
+  }
+
+  textattr(HuidigeEdit->Data->Kleur);
+  gotoxy(HuidigeEdit->Data->x,HuidigeEdit->Data->y);
+  cputs(WERKEDIT);
+
+  EditBlok->LaatsteToets=Toets;
+  free(Kopie);
+  SetCursor(VorigeCursor);
+
+}
+
+/*----------------------------------------------------------------------
+  VolgendVeld
+  ----------------------------------------------------------------------*/
+EditLijst_t *VolgendVeld(EditLijst_t *HuidigeEdit,EditLijst_t *NieuweEdit,
+								 const char *Kopie)
+{
+
+  textattr(HuidigeEdit->Data->Kleur);
+  gotoxy(HuidigeEdit->Data->x,HuidigeEdit->Data->y);
+  cputs(WERKEDIT);
+  HuidigeEdit=NieuweEdit;
+  Kopie=realloc(Kopie,(strlen(WERKEDIT)+1)*sizeof(char));
+  textattr(HuidigeEdit->Data->EditKleur);
+  gotoxy(HuidigeEdit->Data->x,HuidigeEdit->Data->y);
+  cputs(WERKEDIT);
+
+  return(HuidigeEdit);
+
+}
+
+/*----------------------------------------------------------------------
+  EditNieuw
+  ----------------------------------------------------------------------*/
+EditKop_t *EditNieuw(void)
+{
+
+  EditKop_t *Nieuw;
+
+  Nieuw=(EditKop_t *) malloc(sizeof(EditKop_t));
+
+  if (Nieuw) {
+	 Nieuw->Aantal=0;
+	 Nieuw->Eerste=Nieuw->Laatste=NULL;
+	 Nieuw->LaatsteToets=0;
+  }
+  else
+	 exit(1);
+
+  return(Nieuw);
+
+}
+
+/*----------------------------------------------------------------------
+  NieuwElement
+  ----------------------------------------------------------------------*/
+EditLijst_t *NieuwElement(EditData_t *Data,EditLijst_t *Vorige,
+								 EditLijst_t *Volgende)
+{
+
+  EditLijst_t *Nieuw;
+
+  Nieuw=(EditLijst_t *) malloc(sizeof(EditLijst_t));
+
+  if (Nieuw) {
+	 Nieuw->Data=Data;
+	 Nieuw->Vorige=Vorige;
+	 Nieuw->Volgende=Volgende;
+  }
+  else
+	 exit(1);
+
+  return(Nieuw);
+
+}
+
+/*----------------------------------------------------------------------
+  EditInvoegen
+  ----------------------------------------------------------------------*/
+EditLijst_t *EditInvoegen(EditKop_t *EditBlok,
+								  EditLijst_t *Positie,
+								  const char *Tekst,
+								  const char *Mask,
+								  const char *Picture,
+								  int y,
+								  int x,
+								  unsigned int EditKleur,
+								  unsigned int Kleur,
+								  int (*Voorwaarde)(struct EditLijst *Element),
+					           int (*Controle)(struct EditLijst *Element))
+{
+
+  EditLijst_t *Nieuw;
+  EditData_t *Data;
+
+  Data=(EditData_t *) malloc(sizeof(EditData_t));
+  if (!Data)
+	 exit(1);
+  Data->Tekst=(char *) calloc(strlen(Tekst)+1,sizeof(char));
+  if (!Data->Tekst)
+	 exit(1);
+  strcpy(Data->Tekst,Tekst);
+  Data->Mask=(char *) calloc(strlen(Mask)+1,sizeof(char));
+  if (!Data->Mask)
+	 exit(1);
+  strcpy(Data->Mask,Mask);
+  Data->Picture=(char *) calloc(strlen(Picture)+1,sizeof(char));
+  if (!Data->Picture)
+	 exit(1);
+  strcpy(Data->Picture,Picture);
+  Data->y=y;
+  Data->x=x;
+  Data->EditKleur=EditKleur;
+  Data->Kleur=Kleur;
+  Data->Voorwaarde=Voorwaarde;
+  Data->Controle=Controle;
+
+  if (Positie) {                    /* Er moet worden ingevoegd */
+	 Nieuw=NieuwElement(Data,Positie->Vorige,Positie);
+	 if (Nieuw) {
+		if (Nieuw->Vorige)
+		  Nieuw->Vorige->Volgende=Nieuw;
+		else
+		  EditBlok->Eerste=Nieuw;
+		Positie->Vorige=Nieuw;
+		EditBlok->Aantal++;
+	 }
+  }
+  else {                            /* Er moet worden toegevoegd */
+	 if (EditBlok->Laatste) {
+		Nieuw=NieuwElement(Data,EditBlok->Laatste,NULL);
+		if (Nieuw) {
+		  EditBlok->Laatste->Volgende=Nieuw;
+		  EditBlok->Laatste=Nieuw;
+		  EditBlok->Aantal++;
+		}
+	 }
+	 else {                          /* EditBlok is leeg */
+		Nieuw=NieuwElement(Data,NULL,NULL);
+		if (Nieuw) {
+		  EditBlok->Eerste=Nieuw;
+		  EditBlok->Laatste=Nieuw;
+		  EditBlok->Aantal++;
+		}
+	 }
+  }
+
+  return(Nieuw);
+
+}
+
+/*----------------------------------------------------------------------
+  WisElement
+  ----------------------------------------------------------------------*/
+void WisElement(EditKop_t *EditBlok,EditLijst_t *EditElement)
+{
+
+  if (EditElement->Vorige)
+	 EditElement->Vorige->Volgende=EditElement->Volgende;
+  else
+	 EditBlok->Eerste=EditElement->Volgende;
+
+  if (EditElement->Volgende)
+	 EditElement->Volgende->Vorige=EditElement->Vorige;
+  else
+	 EditBlok->Laatste=EditElement->Vorige;
+
+  EditBlok->Aantal--;
+  free(EditElement->Data->Tekst);
+  free(EditElement->Data->Mask);
+  free(EditElement->Data->Picture);
+  free(EditElement->Data);
+  free(EditElement);
+
+  return;
+
+}
+
+/*----------------------------------------------------------------------
+  WisEditBlok
+  ----------------------------------------------------------------------*/
+void WisEditBlok(EditKop_t *EditBlok)
+{
+
+  while(EditBlok->Laatste)
+	 WisElement(EditBlok,EditBlok->Laatste);
+
+  free(EditBlok);
+
+  return;
+
+}
+
+/*
+EOF HBEDIT.C
+------------------------------------------------------------------------*/
