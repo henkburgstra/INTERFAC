@@ -2,6 +2,7 @@
   HBEDIT.C
   Copyright 1995 H.G.Burgstra
   Datum laatste wijziging: 27-05-95
+  (oud)
   ----------------------------------------------------------------------*/
 #include <alloc.h>
 #include <stdlib.h>
